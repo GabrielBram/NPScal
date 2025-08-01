@@ -125,6 +125,7 @@ class NPScal():
     def pcol_from_idx(self, idx):
         return int(idx/self.descr.nb % self.descr.npcol)
 
+    #TODO: SENSIBLE OVERLOADING OF THIS INTERFACE
     def __getitem__(self, val):
         from npscal.index_utils.npscal_select import select_single_val 
         from npscal.index_utils.npscal_select import select_slice
@@ -138,24 +139,117 @@ class NPScal():
         if (isinstance(val[0], slice) or isinstance(val[1], slice)):
             return select_slice(self, val)
 
-    def __setitem__(self, val, idx: set, val_set: int | float | np.float64) -> None:
+    #TODO: SENSIBLE OVERLOADING OF THIS INTERFACE
+    def __setitem__(self, idx, val_set):
         
         if len(idx) != 2:
             raise Exception("Please use two indices.")
 
         idx1 = idx[0]
         idx2 = idx[1]
-        
+
         if (isinstance(idx1, int) and isinstance(idx2, int)):
             
-            lidx1 = npscal.lc2gc_map[idx1]
-            lidx2 = npscal.lr2gr_map[idx2]
+            lidx1 = self.lc2gc_map[idx1]
+            lidx2 = self.lr2gr_map[idx2]
 
             if (lidx1 != -1 and lidx2 != -1):
-                npscal.loc_array[lidx1, lidx2] = val_set
+                self.loc_array[lidx1, lidx2] = val_set
 
-        if (isinstance(idx1, slice) or isinstance(idx2, slice)):        
             return None
+
+        # Let's just do a stupid and slow implementation for now
+        # We can worry about doing something faster later
+
+        # 1D (columns) Array Setting
+        if (isinstance(idx1, slice) and (not isinstance(idx2, slice))):
+            start = idx1.start
+            stop = idx1.stop
+
+            if start is None:
+                start = 0
+            if stop is None:
+                stop = self.gl_n - 1
+
+            lidx2 = self.lc2gc_map[idx2]
+            for i in range(start, stop):
+                lidx1 = self.lr2gr_map[i]
+                if (lidx1 != -1 and lidx2 != -1):
+                    self.loc_array[lidx1, lidx2] = val_set[i]
+
+            return None
+        
+        # 1D (rows) Array Setting
+        if (not isinstance(idx1, slice) and (isinstance(idx2, slice))):
+            start = idx2.start
+            stop = idx2.stop
+
+            if start is None:
+                start = 0
+            if stop is None:
+                stop = self.gl_m - 1
+
+            lidx2 = self.lr2gr_map[idx1]
+            for i in range(start, stop):
+                lidx1 = self.lc2gc_map[i]
+                if (lidx1 != -1 and lidx2 != -1):
+                    self.loc_array[lidx1, lidx2] = val_set[i]
+
+            return None
+
+        # 2D (subarray) Array Setting
+        if (isinstance(idx1, slice) and (isinstance(idx2, slice))):
+
+            if type(val_set) is np.ndarray:
+            
+                start_r = idx1.start
+                stop_r = idx1.stop
+
+                start_c = idx2.start
+                stop_c = idx2.stop
+
+                if start_r is None:
+                    start_r = 0
+                if start_c is None:
+                    start_c = 0
+                if stop_r is None:
+                    stop_r = self.gl_m - 1
+                if stop_c is None:
+                    stop_c = self.gl_n - 1
+
+                lidx2 = self.lr2gr_map[idx2]
+                for i in range(start_r, stop_r):
+                    for j in range(start_c, stop_c):
+                        lidx1 = self.lr2gr_map[i]
+                        lidx2 = self.lc2gc_map[j]
+
+                        if (lidx1 != -1 and lidx2 != -1):
+                            self.loc_array[lidx1, lidx2] = val_set[i, j]
+
+                return None
+
+            if type(val_set) is Self:
+
+                start_r = idx1.start
+                stop_r = idx1.stop
+
+                start_c = idx2.start
+                stop_c = idx2.stop
+
+                # Check contexts and distributions match - else quit
+                if not (self.descr.tag == val_set.descr.tag):
+                    raise Exception("Cannot set values between Self instances with mismatched descriptor tags")
+
+                lidx2 = self.lr2gr_map[idx2]
+                for i in range(start_r, stop_r):
+                    for j in range(start_c, stop_c):
+                        lidx1 = self.lr2gr_map[i]
+                        lidx2 = self.lc2gc_map[j]
+
+                        if (lidx1 != -1 and lidx2 != -1):
+                            self.loc_array[lidx1, lidx2] = val_set.loc_array[lidx1, lidx2]
+
+                return None       
         
     def __add__(self, val):
         new_loc_array = self.loc_array + val.loc_array
@@ -163,7 +257,7 @@ class NPScal():
         new_descr_tag = self.descr.tag
         new_ctxt_tag = self.ctxt.tag
 
-        add_result = NPScal(loc_array=self.loc_array, ctxt_tag=new_ctxt_tag, descr_tag=new_descr_tag)
+        add_result = NPScal(loc_array=new_loc_array, ctxt_tag=new_ctxt_tag, descr_tag=new_descr_tag, lib=self.sl)
         
         return add_result
 
@@ -176,7 +270,7 @@ class NPScal():
         new_descr_tag = self.descr.tag
         new_ctxt_tag = self.ctxt.tag
 
-        add_result = NPScal(loc_array=self.loc_array, ctxt_tag=new_ctxt_tag, descr_tag=new_descr_tag)
+        add_result = NPScal(loc_array=new_loc_array, ctxt_tag=new_ctxt_tag, descr_tag=new_descr_tag, lib=self.sl)
         
         return add_result
 
@@ -186,7 +280,7 @@ class NPScal():
         new_descr_tag = self.descr.tag
         new_ctxt_tag = self.ctxt.tag
 
-        sub_result = NPScal(loc_array=self.loc_array, ctxt_tag=new_ctxt_tag, descr_tag=new_descr_tag)
+        sub_result = NPScal(loc_array=new_loc_array, ctxt_tag=new_ctxt_tag, descr_tag=new_descr_tag, lib=self.sl)
         
         return sub_result
 

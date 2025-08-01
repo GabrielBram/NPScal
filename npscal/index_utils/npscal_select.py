@@ -42,13 +42,17 @@ def select_slice(npscal, val):
         newstart, newend = val[1], val[1]+1
         val[1] = slice(newstart, newend, None)
 
-    gl_row_start, gl_col_start = val[0].start+1, val[1].start+1
+    if val[0].start is None:
+        gl_row_start = 1
+    else:
+        gl_row_start = val[0].start + 1
+    if val[1].start is None:
+        gl_col_start = 1
+    else:
+        gl_col_start = val[0].start + 1
+    
     gl_row_end, gl_col_end = val[0].stop, val[1].stop
 
-    if gl_row_start is None:
-        gl_row_start = 1
-    if gl_col_start is None:
-        gl_col_start = 1
     if gl_row_end is None or gl_row_end == -1:
         gl_row_end = npscal.gl_m
     if gl_col_end is None or gl_col_end == -1:
@@ -61,12 +65,12 @@ def select_slice(npscal, val):
         # We are just using a column or row here - in that case, just return an ndarray
         # Given that the contexts created here are temporary, we do not bother logging
         # them into the context manager
-        new_ctx = npscal.sl.make_blacs_context(npscal.sl.get_system_context(npscal.ctx), 1, 1)
+        new_ctx = npscal.sl.make_blacs_context(npscal.sl.get_system_context(npscal.ctxt.ctxt), 1, 1)
         descr_new = npscal.sl.make_blacs_desc(new_ctx, new_m, new_n)
         submatrix = np.zeros((new_m, new_n), dtype=np.float64).T if (descr_new.myrow==0 and descr_new.mycol==0) else None
 
         npscal.sl.pdgemr2d(new_m, new_n, npscal.loc_array, gl_row_start, gl_col_start, npscal.descr,
-                         submatrix, 1, 1, descr_new, npscal.ctx)
+                           submatrix, 1, 1, descr_new, npscal.ctxt.ctxt)
 
         submatrix = npscal.comm.bcast([submatrix, np.float64], root=0)[0]
 
@@ -85,7 +89,7 @@ def select_slice(npscal, val):
 
     return submatrix
 
-def diag(npscal):
+def diagonal(npscal):
     # Already, the global selection syntax bears some fruit - we
     # no longer have to wrangle with local row/local column
     # indexing.

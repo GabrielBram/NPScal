@@ -3,11 +3,11 @@ from npscal.blacs_ctxt_management import DESCR_Register, BLACSDESCRManager
 import numpy as np
 
 def matmul(self_mat, inp_mat):
-    if self_mat.transpose:
+    if inp_mat.transpose:
         transB = "T"
     else:
         transB = "N"
-    if inp_mat.transpose:
+    if self_mat.transpose:
         transA = "T"
     else:
         transA = "N"
@@ -29,11 +29,7 @@ def matmul(self_mat, inp_mat):
 
     new_loc_array = desc_c.alloc_zeros(dtype=np.float64)
 
-    newmat = NPScal(loc_array=new_loc_array, ctxt_tag=ctxt_tag, descr_tag=desc_c_tag, lib=self_mat.sl)
-
-    print(f"a: {desc_a}")
-    print(f"b: {desc_b}")
-    print(f"c: {desc_c}")
+    newmat = NPScal(loc_array=new_loc_array, ctxt_tag=ctxt_tag, descr_tag=desc_c_tag, lib=inp_mat.sl)
 
     self_mat.sl.pdgemm(transA, transB, m, n, k,
                    alpha, self_mat.loc_array, 1, 1, desc_a,
@@ -44,13 +40,13 @@ def matmul(self_mat, inp_mat):
 
 def rmatmul(self_mat, inp_mat):
         if self_mat.transpose:
-            transA = "T"
-        else:
-            transA = "N"
-        if inp_mat.transpose:
             transB = "T"
         else:
             transB = "N"
+        if inp_mat.transpose:
+            transA = "T"
+        else:
+            transA = "N"
 
         m = inp_mat.gl_m
         n = self_mat.gl_n
@@ -61,10 +57,6 @@ def rmatmul(self_mat, inp_mat):
         desc_a = self_mat.descr
         desc_b = inp_mat.descr
         desc_c = newmat.descr
-
-        print(f"a: {desc_a}")
-        print(f"b: {desc_b}")
-        print(f"c: {desc_c}")
         
         self_mat.sl.pdgemm(transA, transB, m, n, k,
                        alpha, inp_mat.loc_array, 1, 1, desc_b,
