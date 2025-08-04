@@ -1,9 +1,9 @@
 from scalapack4py.blacsdesc import blacs_desc
+from abc import ABC, abstractmethod
 
 class GeneralRegister():
 
     def __init__(self):
-
         self._REGISTER = {}
 
     def set_register(self, key, val):
@@ -12,16 +12,34 @@ class GeneralRegister():
     def get_register(self, key):
         return self._REGISTER[key]
 
-    def unset_register(self, key):
-        self._REGISTER[key].pop()
-
     def check_register(self, key):
         return key in self._REGISTER.keys()
 
-    def clean_dead_contexts(self):
-        for val in self._REGISTER.values():
-            print(val)
-            
+    def clear_register(self):
+        for key in list(self._REGISTER.keys()):
+            self.unset_register(key)
+    
+    @abstractmethod
+    def unset_register(self, key):
+        pass
+
+class DescrRegister(GeneralRegister):
+
+    def __init__(self):
+        super().__init__()
+
+    def unset_register(self, key):
+        del self._REGISTER[key]
+
+class ContextRegister(GeneralRegister):
+
+    def __init__(self):
+        super().__init__()
+
+    def unset_register(self, key):
+        self._REGISTER[key].close_context()
+        del self._REGISTER[key]
+        
 class BLACSContextManager():
     """
     Given that ab application codebase may be working with
@@ -41,8 +59,8 @@ class BLACSContextManager():
         # Finally, add the BLACS Context to the Register
         CTXT_Register.set_register(context_tag, self)
 
-    def del_context(self):
-        return None
+    def close_context(self):
+        self.lib.close_blacs_context(self.ctxt)
 
     def __repr__(self):
         return str(self.ctxt)
@@ -69,9 +87,5 @@ class BLACSDESCRManager(blacs_desc):
         # Finally, add the BLACS Context to the Register
         DESCR_Register.set_register(descr_tag, self)
 
-    #TODO: KILL REGISTERS AND CONTEXT        
-    def del_descr(self):
-        return None
-
-CTXT_Register = GeneralRegister()
-DESCR_Register = GeneralRegister()
+CTXT_Register = ContextRegister()
+DESCR_Register = DescrRegister()

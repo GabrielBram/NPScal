@@ -1,7 +1,7 @@
 from scalapack4py.array_types import nullable_ndpointer, ctypes2ndarray
 from npscal.distarray import NPScal
 from npscal.comms import mpi_bcast_float, mpi_bcast_integer
-from npscal.blacs_ctxt_management import BLACSDESCRManager, CTXT_Register
+from npscal.blacs_ctxt_management import BLACSDESCRManager, CTXT_Register, DESCR_Register
 import numpy as np
 
 def select_single_val(npscal, val, bcast=True):
@@ -11,8 +11,8 @@ def select_single_val(npscal, val, bcast=True):
         idx1 = val[0]
         idx2 = val[1]
     
-        lidx1 = npscal.lc2gc_map[idx1]
-        lidx2 = npscal.lr2gr_map[idx2]
+        lidx1 = npscal.lr2gr_map[idx1]
+        lidx2 = npscal.lc2gc_map[idx2]
 
         if (lidx1 != -1 and lidx2 != -1):
             out = npscal.loc_array[lidx1, lidx2]
@@ -33,13 +33,13 @@ def select_slice(npscal, val):
 
     # Generates a new instance of NPScal with the
     # desired shape and a new distribution
-    val = list(val)
+    #print(val)
         
     if isinstance(val[0], int):
-        newstart, newend = val[0], val[0]+1
+        newstart, newend = val[0], val[0]
         val[0] = slice(newstart, newend, None)
     if isinstance(val[1], int):
-        newstart, newend = val[1], val[1]+1
+        newstart, newend = val[1], val[1]
         val[1] = slice(newstart, newend, None)
 
     if val[0].start is None:
@@ -49,17 +49,23 @@ def select_slice(npscal, val):
     if val[1].start is None:
         gl_col_start = 1
     else:
-        gl_col_start = val[0].start + 1
-    
-    gl_row_end, gl_col_end = val[0].stop, val[1].stop
+        gl_col_start = val[1].start + 1
 
-    if gl_row_end is None or gl_row_end == -1:
+    if val[0].stop is None:
         gl_row_end = npscal.gl_m
-    if gl_col_end is None or gl_col_end == -1:
+    else:
+        gl_row_end = val[0].stop
+    if val[1].stop is None:
         gl_col_end = npscal.gl_n
+    else:
+        gl_col_end = val[1].stop
 
     new_m = gl_row_end - gl_row_start + 1
     new_n = gl_col_end - gl_col_start + 1
+
+    #print(f"NEW M N: {new_m}, {new_n}")
+    #print(f"glrow st end: {gl_row_start}, {gl_row_end}")
+    #print(f"glcol st end: {gl_col_start}, {gl_col_end}")
 
     if new_m == 1 or new_n == 1:
         # We are just using a column or row here - in that case, just return an ndarray
@@ -67,8 +73,7 @@ def select_slice(npscal, val):
         # them into the context manager
         new_ctx = npscal.sl.make_blacs_context(npscal.sl.get_system_context(npscal.ctxt.ctxt), 1, 1)
         descr_new = npscal.sl.make_blacs_desc(new_ctx, new_m, new_n)
-        submatrix = np.zeros((new_m, new_n), dtype=np.float64).T if (descr_new.myrow==0 and descr_new.mycol==0) else None
-
+        submatrix = descr_new.alloc_zeros(dtype=np.float64) if (descr_new.myrow==0 and descr_new.mycol==0) else None
         npscal.sl.pdgemr2d(new_m, new_n, npscal.loc_array, gl_row_start, gl_col_start, npscal.descr,
                            submatrix, 1, 1, descr_new, npscal.ctxt.ctxt)
 
@@ -80,13 +85,18 @@ def select_slice(npscal, val):
             submatrix = submatrix.reshape(new_m)
 
     else:
-        # Return a new NPScal object with a new distribution        
-        descr_new = BLACSDESCRManager(npscal.ctxt.tag, "slice1", npscal.sl, new_m, new_n)
+        # Return a new NPScal object with a new distribution
+        new_descr_tag = f"matmul_{npscal.ctxt.tag}_{new_m}_{new_n}"
+        if not(DESCR_Register.check_register(new_descr_tag)):
+            descr_new = BLACSDESCRManager(npscal.ctxt.tag, new_descr_tag, npscal.sl, new_m, new_n)
+        else:
+            descr_new = DESCR_Register.get_register(new_descr_tag)
+                
         submatrix = descr_new.alloc_zeros(dtype=np.float64)
-        submatrix = NPScal(loc_array=submatrix, ctxt_tag=npscal.ctxt.tag, descr_tag="slice1", lib=npscal.sl)
+        submatrix = NPScal(loc_array=submatrix, ctxt_tag=npscal.ctxt.tag, descr_tag=new_descr_tag, lib=npscal.sl)
+
         npscal.sl.pdgemr2d(new_m, new_n, npscal.loc_array, gl_row_start, gl_col_start, npscal.descr,
                            submatrix.loc_array, 1, 1, descr_new, npscal.ctxt.ctxt)
-
     return submatrix
 
 def diagonal(npscal):
@@ -94,9 +104,6 @@ def diagonal(npscal):
     # no longer have to wrangle with local row/local column
     # indexing.
 
-    #print(npscal.lc2gc_map[idx2])
-    #print(npscal.lc2gc_map)
-        
     diag = np.zeros(npscal.gl_n)
     for i in range(npscal.gl_n):
         diag[i] = npscal[i,i]
