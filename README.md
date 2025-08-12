@@ -1,1 +1,1 @@
-A very stripped down version of Numpy which can (in principle) work with ScaLAPACK
+A library that replicates some of the basic functionality of Numpy with distributed BLACS arrays.
