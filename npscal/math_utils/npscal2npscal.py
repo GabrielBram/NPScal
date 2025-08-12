@@ -34,6 +34,7 @@ def matmul(self_mat, inp_mat):
         desc_c_tag = f"matmul_{self_mat.ctxt.ctxt}_{m}_{n}"
         if not(DESCR_Register.check_register(desc_c_tag)):
             desc_c = BLACSDESCRManager(ctxt_tag, desc_c_tag, self_mat.sl, m, n, desc_a.mb, desc_a.nb, desc_a.rsrc, desc_a.csrc, desc_a.lld)
+            #desc_c = BLACSDESCRManager(ctxt_tag, desc_c_tag, self_mat.sl, m, n)
         else:
             desc_c = DESCR_Register.get_register(desc_c_tag)
 
@@ -177,13 +178,13 @@ def svd(self_mat):
 
     u_descr_tag = f"svdu_{ctxt}_{m}_{n}"
     if not(DESCR_Register.check_register(u_descr_tag)):
-        descr_u = BLACSDESCRManager(ctxt_tag, u_descr_tag, self_mat.sl, m, m, descr.mb, descr.nb, descr.rsrc, descr.csrc, descr.lld)
+        descr_u = BLACSDESCRManager(ctxt_tag, u_descr_tag, self_mat.sl, m, size, descr.mb, descr.nb, descr.rsrc, descr.csrc, descr.lld)
     else:
         descr_u = DESCR_Register.get_register(u_descr_tag)
 
     vt_descr_tag = f"svdvt_{ctxt}_{m}_{n}"
     if not(DESCR_Register.check_register(vt_descr_tag)):
-        descr_vt = BLACSDESCRManager(ctxt_tag, vt_descr_tag, self_mat.sl, m, m, descr.mb, descr.nb, descr.rsrc, descr.csrc, descr.lld)
+        descr_vt = BLACSDESCRManager(ctxt_tag, vt_descr_tag, self_mat.sl, size, n, descr.mb, descr.nb, descr.rsrc, descr.csrc, descr.lld)
     else:
         descr_vt = DESCR_Register.get_register(vt_descr_tag)
 

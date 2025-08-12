@@ -6,6 +6,7 @@ from mpi4py import MPI
 from .comms import mpi_bcast_float, root_print
 from .blacs_ctxt_management import CTXT_Register, DESCR_Register
 from .blacs_ctxt_management import BLACSContextManager, BLACSDESCRManager
+import npscal.math_utils.operations as op
 from typing import overload
 import numpy as np
 
@@ -25,12 +26,12 @@ class NPScal():
             raise Exception("Only specify either a global or a local array.")
 
         if isinstance(lib, str):
-            self.sl = ScaLAPACK4py(CDLL(libpath, mode=RTLD_GLOBAL))
+            self.sl = ScaLAPACK4py(CDLL(lib, mode=RTLD_GLOBAL))
         else:
             self.sl = lib
 
-        self.ctxt = CTXT_Register.get_register(ctxt_tag)
-        self.descr = DESCR_Register.get_register(descr_tag)
+        self.ctxt_tag = ctxt_tag
+        self.descr_tag = descr_tag
         
         self.comm = MPI.COMM_WORLD
         self.ntasks = self.comm.Get_size()
@@ -45,7 +46,6 @@ class NPScal():
                 self.gl_array = None
                 self.loc_array = np.ctypeslib.as_array(loc_array, shape=(self.descr.locrow*self.descr.loccol,)).copy()
                 self.loc_array = self.loc_array.reshape((self.descr.locrow,self.descr.loccol), order='F')
-
             else:
                 self.gl_array = None
                 self.loc_array = loc_array.reshape((self.descr.locrow,self.descr.loccol), order='F')
@@ -118,11 +118,14 @@ class NPScal():
 
     @property
     def descr(self):
-        return self._descr
+        # Important to avoid cyclic references - do not add the DESCR objects
+        # as an attribute of NPScal to let the garbage collector do it's
+        # work.
+        return DESCR_Register.get_register(self.descr_tag)
 
-    @descr.setter
-    def descr(self, val):
-        self._descr = val
+    @property
+    def ctxt(self):
+        return CTXT_Register.get_register(self.ctxt_tag)
 
     def rank_from_rc(self, row, col):
         return row * self.descr.npcol + col
@@ -183,7 +186,8 @@ class NPScal():
 
     #TODO: SENSIBLE OVERLOADING OF THIS INTERFACE
     def __setitem__(self, idx, val_set):
-        
+        from npscal.index_utils.npscal_select import set_slice
+
         if len(idx) != 2:
             raise Exception("Please use two indices.")
 
@@ -229,8 +233,8 @@ class NPScal():
         # Actual setting done here
         if (isinstance(idx1, int) and isinstance(idx2, int)):
             
-            lidx1 = self.lc2gc_map[idx1]
-            lidx2 = self.lr2gr_map[idx2]
+            lidx1 = self.lr2gr_map[idx1]
+            lidx2 = self.lc2gc_map[idx2]
 
             if (lidx1 != -1 and lidx2 != -1):
                 self.loc_array[lidx1, lidx2] = val_set
@@ -308,26 +312,7 @@ class NPScal():
                 return None
 
             if type(val_set) is type(self):
-
-                start_r = idx1.start
-                stop_r = idx1.stop
-
-                start_c = idx2.start
-                stop_c = idx2.stop
-
-                # Check contexts and distributions match - else quit
-                if not (self.descr.tag == val_set.descr.tag):
-                    raise Exception("Cannot set values between Self instances with mismatched descriptor tags")
-
-                lidx2 = self.lr2gr_map[idx2]
-                for i in range(start_r, stop_r):
-                    for j in range(start_c, stop_c):
-                        lidx1 = self.lr2gr_map[i]
-                        lidx2 = self.lc2gc_map[j]
-
-                        if (lidx1 != -1 and lidx2 != -1):
-                            self.loc_array[lidx1, lidx2] = val_set.loc_array[lidx1, lidx2]
-
+                self = set_slice(val_set, self, idx)
                 return None       
         
     def __add__(self, val):
@@ -368,22 +353,22 @@ class NPScal():
         from npscal.math_utils.npscal2npscal import matmul
         if type(inp_mat) is np.ndarray:
             # Convert the input numpy array to an NPScal array
-            m, n = np.shape(inp_mat)[0], np.shape(inp_mat)[1]
-            ctxt_tag = self.ctxt.tag
+            ctxt_tag = self.ctxt_tag
+            descr_tag = self.descr_tag
             descr = self.descr
 
-            if m == self.gl_m and n == self.gl_n:
-                new_descr_tag = self.descr.tag
-            else:
-                new_descr_tag = "matmul1"
-                BLACSDESCRManager(ctxt_tag, new_descr_tag, self.sl, m, n, descr.mb, descr.nb, descr.rsrc, descr.csrc, descr.lld)
-
-            descr_inp = DESCR_Register.get_register(new_descr_tag)
-
             if len(np.shape(inp_mat)) == 1:
-                inp_mat = np.diag(inp_mat)
+                inp_mat = op.diag(inp_mat, ctxt_tag=ctxt_tag, descr_tag=descr_tag)
+            else:
+                if m == self.gl_m and n == self.gl_n:
+                    new_descr_tag = self.descr.tag
+                else:
+                    new_descr_tag = "matmul1"
 
-            inp_mat = NPScal(gl_array=inp_mat, ctxt_tag=ctxt_tag, descr_tag=new_descr_tag, lib=self.sl)
+                m, n = np.shape(inp_mat)[0], np.shape(inp_mat)[1]
+                descr_inp = DESCR_Register.get_register(new_descr_tag)
+                BLACSDESCRManager(ctxt_tag, new_descr_tag, self.sl, m, n, descr.mb, descr.nb, descr.rsrc, descr.csrc, descr.lld)
+                inp_mat = NPScal(gl_array=inp_mat, ctxt_tag=ctxt_tag, descr_tag=new_descr_tag, lib=self.sl)
 
             newmat = matmul(self, inp_mat)
             self = self.N

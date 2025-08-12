@@ -1,3 +1,5 @@
+from scalapack4py import ScaLAPACK4py
+from ctypes import CDLL, RTLD_GLOBAL
 from scalapack4py.blacsdesc import blacs_desc
 from abc import ABC, abstractmethod
 
@@ -51,7 +53,11 @@ class BLACSContextManager():
         if CTXT_Register.check_register(context_tag):
             raise Exception(f"context_tag [{context_tag}] already exists. Please specify a new context tag")
 
-        self.lib = lib
+        if isinstance(lib, str):
+            self.lib = ScaLAPACK4py(CDLL(lib, mode=RTLD_GLOBAL))
+        else:
+            self.lib = lib
+
         self.MP, self.NP = nproc, mproc
         self.ctxt = self.lib.make_blacs_context(self.lib.get_default_system_context(), nproc, mproc)
         self.tag = context_tag
@@ -79,10 +85,15 @@ class BLACSDESCRManager(blacs_desc):
         if DESCR_Register.check_register(descr_tag):
             raise Exception(f"descr_tag [{descr_tag}] already exists. Please use another descr_tag.")
 
+        if isinstance(lib, str):
+            self.lib = ScaLAPACK4py(CDLL(lib, mode=RTLD_GLOBAL))
+        else:
+            self.lib = lib
+
         self.tag = descr_tag
         ctxt = CTXT_Register.get_register(context_tag).ctxt
 
-        super().__init__(lib, ctxt, m, n, mb, nb, rsrc, csrc, lld, buf)
+        super().__init__(self.lib, ctxt, m, n, mb, nb, rsrc, csrc, lld, buf)
 
         # Finally, add the BLACS Context to the Register
         DESCR_Register.set_register(descr_tag, self)

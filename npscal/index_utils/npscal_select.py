@@ -1,3 +1,4 @@
+
 from scalapack4py.array_types import nullable_ndpointer, ctypes2ndarray
 from npscal.distarray import NPScal
 from npscal.comms import mpi_bcast_float, mpi_bcast_integer
@@ -91,13 +92,52 @@ def select_slice(npscal, val):
             descr_new = BLACSDESCRManager(npscal.ctxt.tag, new_descr_tag, npscal.sl, new_m, new_n)
         else:
             descr_new = DESCR_Register.get_register(new_descr_tag)
-                
+
         submatrix = descr_new.alloc_zeros(dtype=np.float64)
         submatrix = NPScal(loc_array=submatrix, ctxt_tag=npscal.ctxt.tag, descr_tag=new_descr_tag, lib=npscal.sl)
 
         npscal.sl.pdgemr2d(new_m, new_n, npscal.loc_array, gl_row_start, gl_col_start, npscal.descr,
                            submatrix.loc_array, 1, 1, descr_new, npscal.ctxt.ctxt)
     return submatrix
+
+def set_slice(src_npscal, dest_npscal, val):
+
+    # Generates a new instance of NPScal with the
+    # desired shape and a new distribution
+    #print(val)
+        
+    if isinstance(val[0], int):
+        newstart, newend = val[0], val[0]
+        val[0] = slice(newstart, newend, None)
+    if isinstance(val[1], int):
+        newstart, newend = val[1], val[1]
+        val[1] = slice(newstart, newend, None)
+
+    if val[0].start is None:
+        gl_row_start = 1
+    else:
+        gl_row_start = val[0].start + 1
+    if val[1].start is None:
+        gl_col_start = 1
+    else:
+        gl_col_start = val[1].start + 1
+
+    if val[0].stop is None:
+        gl_row_end = npscal.gl_m
+    else:
+        gl_row_end = val[0].stop
+    if val[1].stop is None:
+        gl_col_end = npscal.gl_n
+    else:
+        gl_col_end = val[1].stop
+
+    new_m = gl_row_end - gl_row_start + 1
+    new_n = gl_col_end - gl_col_start + 1
+
+    src_npscal.sl.pdgemr2d(new_m, new_n, src_npscal.loc_array, 1, 1, src_npscal.descr,
+                       dest_npscal.loc_array, gl_row_start, gl_col_start, dest_npscal.descr, src_npscal.ctxt.ctxt)
+
+    return dest_npscal
 
 def diagonal(npscal):
     # Already, the global selection syntax bears some fruit - we
